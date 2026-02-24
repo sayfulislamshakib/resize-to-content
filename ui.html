@@ -23,9 +23,7 @@
     }
 
     input,
-    button,
-    select,
-    textarea {
+    button {
       font-family: inherit;
     }
 
@@ -65,7 +63,6 @@
 
     .mode-card span {
       width: 32px;
-      min-height: 32px;
       height: 32px;
       display: flex;
       align-items: center;
@@ -390,13 +387,22 @@
       modeTitleEl.textContent = `Mode ${MODE_TITLE_LABELS[mode] || 'All Side'}`;
     }
 
-    function updateGapInputState() {
-      gapInput.disabled = false;
-    }
-
     function saveSetting(type, field, value) {
       postToPlugin({ type, [field]: value });
       requestUiSize();
+    }
+
+    function enableSelectAllOnFocus(input) {
+      const selectAll = () => {
+        try {
+          input.select();
+        } catch (_error) {
+          // Ignore environments where selecting is not supported.
+        }
+      };
+
+      input.addEventListener('focus', selectAll);
+      input.addEventListener('click', selectAll);
     }
 
     function renderModeOptions() {
@@ -410,7 +416,8 @@
 
     renderModeOptions();
     setMode(currentMode);
-    updateGapInputState();
+    enableSelectAllOnFocus(paddingInput);
+    enableSelectAllOnFocus(gapInput);
 
     modeGridEl.addEventListener('change', (event) => {
       const target = event.target;
@@ -432,7 +439,6 @@
     });
 
     removeAllGapsInput.addEventListener('change', () => {
-      updateGapInputState();
       saveSetting('save-remove-all-gaps', 'removeAllGaps', removeAllGapsInput.checked);
     });
 
@@ -462,7 +468,6 @@
       },
       'set-remove-all-gaps': (msg) => {
         removeAllGapsInput.checked = msg.removeAllGaps === true;
-        updateGapInputState();
       }
     };
 

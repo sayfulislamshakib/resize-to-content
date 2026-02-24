@@ -107,6 +107,12 @@ function isFrameNode(node) {
   return node.type === "FRAME";
 }
 
+function isBottomConstrained(child) {
+  if (!("constraints" in child) || !child.constraints) return false;
+  const vertical = child.constraints.vertical;
+  return vertical === "MAX" || vertical === "BOTTOM";
+}
+
 function updateSelectionInfo() {
   const frameCount = figma.currentPage.selection.filter(isFrameNode).length;
   figma.ui.postMessage({
@@ -148,6 +154,10 @@ function getContentBounds(frame) {
   let minY = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
   let maxY = Number.NEGATIVE_INFINITY;
+  let maxYWithoutBottomConstraint = Number.NEGATIVE_INFINITY;
+  let bottomConstrainedGroupMinY = Number.POSITIVE_INFINITY;
+  let bottomConstrainedGroupMaxY = Number.NEGATIVE_INFINITY;
+  const bottomConstrainedChildren = [];
   let found = false;
 
   for (const child of frame.children) {
@@ -158,11 +168,35 @@ function getContentBounds(frame) {
     minY = Math.min(minY, bounds.minY);
     maxX = Math.max(maxX, bounds.maxX);
     maxY = Math.max(maxY, bounds.maxY);
+    if (isBottomConstrained(child) && "y" in child && "height" in child) {
+      bottomConstrainedGroupMinY = Math.min(bottomConstrainedGroupMinY, bounds.minY);
+      bottomConstrainedGroupMaxY = Math.max(bottomConstrainedGroupMaxY, bounds.maxY);
+      bottomConstrainedChildren.push(child);
+    } else {
+      maxYWithoutBottomConstraint = Math.max(maxYWithoutBottomConstraint, bounds.maxY);
+    }
     found = true;
   }
 
   if (!found) return null;
-  return { minX, minY, maxX, maxY };
+
+  const hasBottomConstrainedChildren = bottomConstrainedChildren.length > 0;
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    maxYWithoutBottomConstraint: Number.isFinite(maxYWithoutBottomConstraint)
+      ? maxYWithoutBottomConstraint
+      : null,
+    bottomConstrainedGroupMinY: hasBottomConstrainedChildren
+      ? bottomConstrainedGroupMinY
+      : null,
+    bottomConstrainedGroupMaxY: hasBottomConstrainedChildren
+      ? bottomConstrainedGroupMaxY
+      : null,
+    bottomConstrainedChildren
+  };
 }
 
 function shouldTrimLeft(mode) {
@@ -173,11 +207,95 @@ function shouldTrimTop(mode) {
   return mode === "all" || mode === "vertical" || mode === "top";
 }
 
-function shiftChildren(frame, dx, dy) {
-  if (dx === 0 && dy === 0) return;
+function captureAndFreezeChildConstraints(frame) {
+  const frozen = [];
+
   for (const child of frame.children) {
-    if ("x" in child) child.x += dx;
-    if ("y" in child) child.y += dy;
+    if (!("constraints" in child) || !child.constraints) continue;
+    const current = child.constraints;
+
+    frozen.push({
+      child,
+      constraints: {
+        horizontal: current.horizontal,
+        vertical: current.vertical
+      }
+    });
+
+    try {
+      child.constraints = { horizontal: "MIN", vertical: "MIN" };
+    } catch (_error) {
+      // Ignore children that do not allow constraints to be set.
+    }
+  }
+
+  return frozen;
+}
+
+function restoreChildConstraints(frozen) {
+  for (const item of frozen) {
+    try {
+      item.child.constraints = item.constraints;
+    } catch (_error) {
+      // Ignore children that do not allow constraints to be restored.
+    }
+  }
+}
+
+function captureChildGeometry(frame) {
+  const snapshot = [];
+  const frameX = frame.x;
+  const frameY = frame.y;
+
+  for (const child of frame.children) {
+    try {
+      if (!("x" in child) || !("y" in child)) continue;
+
+      const item = {
+        child,
+        absX: frameX + child.x,
+        absY: frameY + child.y
+      };
+
+      if (
+        "width" in child &&
+        "height" in child &&
+        typeof child.resizeWithoutConstraints === "function"
+      ) {
+        item.width = child.width;
+        item.height = child.height;
+      }
+
+      snapshot.push(item);
+    } catch (_error) {
+      // Ignore children that cannot be captured.
+    }
+  }
+
+  return snapshot;
+}
+
+function restoreChildGeometry(frame, snapshot) {
+  for (const item of snapshot) {
+    try {
+      const child = item.child;
+      if ("x" in child) child.x = item.absX - frame.x;
+      if ("y" in child) child.y = item.absY - frame.y;
+
+      if (
+        typeof item.width === "number" &&
+        typeof item.height === "number" &&
+        typeof child.resizeWithoutConstraints === "function"
+      ) {
+        const targetWidth = Math.max(1, item.width);
+        const targetHeight = Math.max(1, item.height);
+        if (Math.abs(child.width - targetWidth) > 0.01 || Math.abs(child.height - targetHeight) > 0.01) {
+          child.resizeWithoutConstraints(targetWidth, targetHeight);
+        }
+      }
+    } catch (_error) {
+      // Ignore children that cannot be restored.
+    }
   }
 }
 
@@ -245,6 +363,7 @@ function collapseGapToImmediatePrevious(frame, targetGap, axisHint = null) {
   const gap = axis === "x"
     ? lastEntry.bounds.minX - prevEntry.bounds.maxX
     : lastEntry.bounds.minY - prevEntry.bounds.maxY;
+  if (gap < 0) return false;
   const delta = targetGap - gap;
   if (delta === 0) return false;
 
@@ -286,9 +405,13 @@ function collapseGapsForAllConsecutive(frame, targetGap, axisHint = null) {
       const start = (axis === "x" ? entry.bounds.minX : entry.bounds.minY) + cumulativeShift;
       const end = (axis === "x" ? entry.bounds.maxX : entry.bounds.maxY) + cumulativeShift;
       const gap = start - prevEnd;
+      if (gap < 0) {
+        prevEnd = Math.max(prevEnd, end);
+        continue;
+      }
 
       let delta = 0;
-      if (gap > targetGap) {
+      if (gap !== targetGap) {
         delta = targetGap - gap;
         cumulativeShift += delta;
         changed = true;
@@ -311,9 +434,9 @@ function collapseGapsForAllConsecutive(frame, targetGap, axisHint = null) {
   } catch (_error) {
     if (frame.layoutMode !== "NONE" && typeof frame.itemSpacing === "number") {
       try {
-        if (frame.itemSpacing <= targetGap) return false;
+        const hadChange = frame.itemSpacing !== targetGap;
         frame.itemSpacing = targetGap;
-        return true;
+        return hadChange;
       } catch (_spacingError) {
         return false;
       }
@@ -323,10 +446,17 @@ function collapseGapsForAllConsecutive(frame, targetGap, axisHint = null) {
 }
 
 function applyBounds(frame, mode, contentBounds, padding) {
+  const frozenChildConstraints = captureAndFreezeChildConstraints(frame);
+  const preservedGeometry = captureChildGeometry(frame);
   const oldX = frame.x;
   const oldY = frame.y;
   const oldWidth = frame.width;
   const oldHeight = frame.height;
+  const hasBottomConstrainedChildren =
+    Array.isArray(contentBounds.bottomConstrainedChildren) &&
+    contentBounds.bottomConstrainedChildren.length > 0 &&
+    typeof contentBounds.bottomConstrainedGroupMinY === "number" &&
+    typeof contentBounds.bottomConstrainedGroupMaxY === "number";
 
   let newWidth = oldWidth;
   let newHeight = oldHeight;
@@ -346,7 +476,18 @@ function applyBounds(frame, mode, contentBounds, padding) {
   } else if (mode === "top") {
     newHeight = oldHeight - contentBounds.minY + padding;
   } else if (mode === "bottom") {
-    newHeight = contentBounds.maxY + padding;
+    if (hasBottomConstrainedChildren) {
+      const nonBottomMaxY = typeof contentBounds.maxYWithoutBottomConstraint === "number"
+        ? contentBounds.maxYWithoutBottomConstraint
+        : 0;
+      const bottomConstrainedHeight = Math.max(
+        0,
+        contentBounds.bottomConstrainedGroupMaxY - contentBounds.bottomConstrainedGroupMinY
+      );
+      newHeight = nonBottomMaxY + bottomConstrainedHeight + padding;
+    } else {
+      newHeight = contentBounds.maxY + padding;
+    }
   } else if (mode !== "horizontal" && mode !== "left" && mode !== "right") {
     throw new Error(`Unsupported mode: ${mode}`);
   }
@@ -354,13 +495,35 @@ function applyBounds(frame, mode, contentBounds, padding) {
   newWidth = Math.max(1, newWidth);
   newHeight = Math.max(1, newHeight);
 
-  const shiftX = shouldTrimLeft(mode) ? -contentBounds.minX + padding : 0;
-  const shiftY = shouldTrimTop(mode) ? -contentBounds.minY + padding : 0;
-  shiftChildren(frame, shiftX, shiftY);
+  const newX = shouldTrimLeft(mode) ? oldX + contentBounds.minX - padding : oldX;
+  const newY = shouldTrimTop(mode) ? oldY + contentBounds.minY - padding : oldY;
 
-  frame.resizeWithoutConstraints(newWidth, newHeight);
-  frame.x = oldX;
-  frame.y = oldY;
+  try {
+    frame.resizeWithoutConstraints(newWidth, newHeight);
+    frame.x = newX;
+    frame.y = newY;
+    restoreChildGeometry(frame, preservedGeometry);
+
+    if (mode === "bottom" && hasBottomConstrainedChildren) {
+      let currentBottom = Number.NEGATIVE_INFINITY;
+      for (const child of contentBounds.bottomConstrainedChildren) {
+        if (!("y" in child) || !("height" in child)) continue;
+        currentBottom = Math.max(currentBottom, child.y + child.height);
+      }
+
+      if (Number.isFinite(currentBottom)) {
+        const targetBottom = newHeight - padding;
+        const dy = targetBottom - currentBottom;
+        if (dy !== 0) {
+          for (const child of contentBounds.bottomConstrainedChildren) {
+            if ("y" in child) child.y += dy;
+          }
+        }
+      }
+    }
+  } finally {
+    restoreChildConstraints(frozenChildConstraints);
+  }
 }
 
 function resizeSelectedFrames(mode, padding, gap, removeLastGap, removeAllGaps) {
@@ -371,7 +534,8 @@ function resizeSelectedFrames(mode, padding, gap, removeLastGap, removeAllGaps) 
   }
 
   const gapAxisHint = getGapAxisHint(mode);
-  const gapAxes = gapAxisHint ? [gapAxisHint] : ["x", "y"];
+  // In "all" mode, use primary axis detection (null hint) to avoid diagonal reflow.
+  const gapAxes = gapAxisHint ? [gapAxisHint] : [null];
   let resized = 0;
   let skippedNoContent = 0;
   let skippedRotation = 0;
@@ -390,8 +554,8 @@ function resizeSelectedFrames(mode, padding, gap, removeLastGap, removeAllGaps) 
 
       if (removeAllGaps) {
         let changed = false;
-        for (const axis of gapAxes) {
-          if (collapseGapsForAllConsecutive(frame, gap, axis)) changed = true;
+        for (const axisHint of gapAxes) {
+          if (collapseGapsForAllConsecutive(frame, gap, axisHint)) changed = true;
         }
         if (changed) removedAllGapsCount += 1;
       } else if (removeLastGap) {
