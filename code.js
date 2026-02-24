@@ -395,42 +395,32 @@ function collapseGapsForAllConsecutive(frame, targetGap, axisHint = null) {
   if (!ordered) return false;
 
   const { axis, entries } = ordered;
-  let changed = false;
-  let cumulativeShift = 0;
-  let prevEnd = axis === "x" ? entries[0].bounds.maxX : entries[0].bounds.maxY;
 
   try {
-    for (let i = 1; i < entries.length; i += 1) {
+    // Keep resize stable: move only one child per run, starting from the trailing pair.
+    for (let i = entries.length - 1; i >= 1; i -= 1) {
       const entry = entries[i];
-      const start = (axis === "x" ? entry.bounds.minX : entry.bounds.minY) + cumulativeShift;
-      const end = (axis === "x" ? entry.bounds.maxX : entry.bounds.maxY) + cumulativeShift;
-      const gap = start - prevEnd;
-      if (gap < 0) {
-        prevEnd = Math.max(prevEnd, end);
-        continue;
+      const prevEntry = entries[i - 1];
+      const gap = axis === "x"
+        ? entry.bounds.minX - prevEntry.bounds.maxX
+        : entry.bounds.minY - prevEntry.bounds.maxY;
+      if (gap < 0) continue;
+
+      const delta = targetGap - gap;
+      if (delta === 0) continue;
+
+      if (axis === "x") {
+        if (!("x" in entry.child)) return false;
+        entry.child.x += delta;
+      } else {
+        if (!("y" in entry.child)) return false;
+        entry.child.y += delta;
       }
 
-      let delta = 0;
-      if (gap !== targetGap) {
-        delta = targetGap - gap;
-        cumulativeShift += delta;
-        changed = true;
-      }
-
-      if (cumulativeShift !== 0) {
-        if (axis === "x") {
-          if (!("x" in entry.child)) return false;
-          entry.child.x += cumulativeShift;
-        } else {
-          if (!("y" in entry.child)) return false;
-          entry.child.y += cumulativeShift;
-        }
-      }
-
-      prevEnd = end + delta;
+      return true;
     }
 
-    return changed;
+    return false;
   } catch (_error) {
     if (frame.layoutMode !== "NONE" && typeof frame.itemSpacing === "number") {
       try {
@@ -598,7 +588,7 @@ function resizeSelectedFrames(mode, padding, gap, removeLastGap, removeAllGaps) 
   const summary = [`Done. Resized ${resized} of ${total} frame${total === 1 ? "" : "s"}`];
 
   if (removeAllGaps) {
-    summary.push(`Set all consecutive gaps to ${gap}px in ${removedAllGapsCount} frame${removedAllGapsCount === 1 ? "" : "s"}`);
+    summary.push(`Adjusted one consecutive gap to ${gap}px in ${removedAllGapsCount} frame${removedAllGapsCount === 1 ? "" : "s"}`);
   } else if (removeLastGap) {
     summary.push(`Set the last gap to ${gap}px in ${removedLastGapCount} frame${removedLastGapCount === 1 ? "" : "s"}`);
   }
