@@ -7,7 +7,6 @@
     :root {
       color-scheme: light;
       --mode-accent: #1b71ff;
-      --mode-accent-soft: #eef4ff;
       --mode-border: #d4d4d8;
       --mode-edge: #F2F2F2;
       --font-sans: "Roboto Flex", "Google Sans", "Segoe UI", Arial, sans-serif;
@@ -302,10 +301,7 @@
       { value: 'bottom', label: 'Bottom' },
       { value: 'left', label: 'Left' }
     ];
-    const MODE_LABELS = MODE_OPTIONS.reduce((acc, option) => {
-      acc[option.value] = option.label;
-      return acc;
-    }, {});
+    const MODE_VALUES = new Set(MODE_OPTIONS.map((option) => option.value));
     const MODE_TITLE_LABELS = {
       all: 'All Side',
       vertical: 'Top and Bottom',
@@ -364,7 +360,7 @@
     }
 
     function sanitizeMode(mode) {
-      return Object.prototype.hasOwnProperty.call(MODE_LABELS, mode) ? mode : 'all';
+      return MODE_VALUES.has(mode) ? mode : 'all';
     }
 
     function setMode(mode) {
@@ -441,15 +437,7 @@
     });
 
     applyButton.addEventListener('click', () => {
-      const payload = getResizePayload();
-      postToPlugin({
-        type: 'resize',
-        mode: payload.mode,
-        padding: payload.padding,
-        gap: payload.gap,
-        removeLastGap: payload.removeLastGap,
-        removeAllGaps: payload.removeAllGaps
-      });
+      postToPlugin({ type: 'resize', ...getResizePayload() });
     });
 
     const messageHandlers = {

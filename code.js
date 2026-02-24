@@ -108,12 +108,10 @@ function isFrameNode(node) {
 }
 
 function updateSelectionInfo() {
-  const selection = figma.currentPage.selection;
-  const frames = selection.filter(isFrameNode);
+  const frameCount = figma.currentPage.selection.filter(isFrameNode).length;
   figma.ui.postMessage({
     type: "selection-info",
-    selected: selection.length,
-    frameCount: frames.length
+    frameCount
   });
 }
 
@@ -202,11 +200,6 @@ function getPrimaryAxisForGap(frame, entries) {
   const spreadX = maxStartX - minStartX;
   const spreadY = maxStartY - minStartY;
   return spreadY >= spreadX ? "y" : "x";
-}
-
-function getGapAxesForMode(mode) {
-  const axisHint = getGapAxisHint(mode);
-  return axisHint ? [axisHint] : ["x", "y"];
 }
 
 function getGapAxisHint(mode) {
@@ -377,8 +370,8 @@ function resizeSelectedFrames(mode, padding, gap, removeLastGap, removeAllGaps) 
     return;
   }
 
-  const gapAxes = getGapAxesForMode(mode);
   const gapAxisHint = getGapAxisHint(mode);
+  const gapAxes = gapAxisHint ? [gapAxisHint] : ["x", "y"];
   let resized = 0;
   let skippedNoContent = 0;
   let skippedRotation = 0;
