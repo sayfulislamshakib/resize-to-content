@@ -1,0 +1,25 @@
+{
+  "name": "Resize to Content",
+  "id": "1608001541674069130",
+  "api": "1.0.0",
+  "main": "code.js",
+  "capabilities": [],
+  "enableProposedApi": false,
+  "documentAccess": "dynamic-page",
+  "editorType": [
+    "figma"
+  ],
+  "ui": "ui.html",
+  "relaunchButtons": [
+    {
+      "command": "open",
+      "name": "Resize to Content",
+      "multipleSelection": true
+    }
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ]
+  }
+}

@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Resize To Content</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --mode-accent: #1b71ff;
+      --mode-accent-soft: #eef4ff;
+      --mode-border: #d4d4d8;
+      --mode-edge: #F2F2F2;
+      --font-sans: "Roboto Flex", "Google Sans", "Segoe UI", Arial, sans-serif;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      margin: 0;
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+      color: #1f1f1f;
+      background: #fff;
+    }
+
+    input,
+    button,
+    select,
+    textarea {
+      font-family: inherit;
+    }
+
+    .mode-section {
+      display: grid;
+      gap: 8px;
+      font-size: 12px;
+      color: #444;
+    }
+
+    .mode-title {
+      font-size: 11px;
+      color: #444;
+      font-weight: 600;
+    }
+
+    .mode-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 32px);
+      gap: 6px;
+    }
+
+    .mode-card {
+      display: block;
+      position: relative;
+      cursor: pointer;
+      user-select: none;
+      width: 32px;
+      height: 32px;
+    }
+
+    .mode-card input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .mode-card span {
+      width: 32px;
+      min-height: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      border: none;
+      background: transparent;
+      box-sizing: border-box;
+      transition: opacity 120ms ease;
+    }
+
+    .mode-card span::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      opacity: 0;
+      pointer-events: none;
+      transition: border-color 120ms ease, opacity 120ms ease;
+    }
+
+    .mode-card:hover span::before {
+      opacity: 1;
+      border-color: var(--mode-border);
+    }
+
+    .mode-card input:checked + span::before {
+      opacity: 1;
+      border-color: var(--mode-accent);
+    }
+
+    .mode-card input:focus-visible + span::before {
+      opacity: 1;
+      border-color: var(--mode-accent);
+    }
+
+    .mode-icon-svg {
+      width: 24px;
+      height: 24px;
+      display: block;
+    }
+
+    .mode-icon-base {
+      fill: none;
+      stroke: var(--mode-edge);
+      stroke-width: 2.5;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .mode-icon-side {
+      stroke: transparent;
+      stroke-width: 2.5;
+      stroke-linecap: square;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .mode-all .mode-icon-base {
+      stroke: var(--mode-accent);
+    }
+
+    .mode-vertical .mode-icon-top,
+    .mode-vertical .mode-icon-bottom {
+      stroke: var(--mode-accent);
+    }
+
+    .mode-horizontal .mode-icon-left,
+    .mode-horizontal .mode-icon-right {
+      stroke: var(--mode-accent);
+    }
+
+    .mode-top .mode-icon-top {
+      stroke: var(--mode-accent);
+    }
+
+    .mode-right .mode-icon-right {
+      stroke: var(--mode-accent);
+    }
+
+    .mode-bottom .mode-icon-bottom {
+      stroke: var(--mode-accent);
+    }
+
+    .mode-left .mode-icon-left {
+      stroke: var(--mode-accent);
+    }
+
+    label {
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .field-row {
+      display: grid;
+      gap: 6px;
+      font-size: 12px;
+      color: #444;
+    }
+
+    .input-section {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field-row-pair {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .field-row input {
+      width: 100%;
+      border: 1px solid var(--mode-border);
+      border-radius: 4px;
+      font-size: 12px;
+      padding: 6px 8px;
+      box-sizing: border-box;
+    }
+
+    .field-row input:focus,
+    .field-row input:focus-visible {
+      border-color: var(--mode-accent);
+      outline: none;
+    }
+
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
+    input[type="number"] {
+      appearance: textfield;
+      -moz-appearance: textfield;
+    }
+
+    .check-row label {
+      color: #444;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .check-row input[type="checkbox"] {
+      margin: 0;
+    }
+
+    .check-section {
+      display: grid;
+      gap: 6px;
+    }
+
+    .selection {
+      font-size: 12px;
+      color: #444;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    button {
+      border: 1px solid var(--mode-border);
+      border-radius: 4px;
+      font-size: 12px;
+      padding: 8px 10px;
+      width: 100%;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    button.primary {
+      border-color: var(--mode-border);
+      background: #1b71ff;
+      color: #fff;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="mode-section">
+    <div id="mode-title" class="mode-title">Mode All Side</div>
+    <div id="mode-grid" class="mode-grid"></div>
+  </div>
+
+  <div class="input-section">
+    <div class="mode-title">Spacing</div>
+    <div class="field-row-pair">
+      <div class="field-row">
+        <label for="padding">Padding (px)</label>
+        <input id="padding" type="number" min="0" step="1" value="" placeholder="0" />
+      </div>
+      <div class="field-row">
+        <label for="gap">Gap (px)</label>
+        <input id="gap" type="number" min="0" step="1" value="" placeholder="0" />
+      </div>
+    </div>
+  </div>
+
+  <div class="check-section">
+    <div class="mode-title">Remove</div>
+    <div class="check-row">
+      <label for="remove-last-gap">
+        <input id="remove-last-gap" type="checkbox" />
+        Set gap between the last two items
+      </label>
+    </div>
+
+    <div class="check-row">
+      <label for="remove-all-gaps">
+        <input id="remove-all-gaps" type="checkbox" />
+        Set gap for all consecutive items
+      </label>
+    </div>
+  </div>
+
+  <div id="selection" class="selection">1 Frame Selected</div>
+
+  <div class="actions">
+    <button id="apply" class="primary">Resize</button>
+  </div>
+
+  <script>
+    const MODE_OPTIONS = [
+      { value: 'all', label: 'All sides' },
+      { value: 'vertical', label: 'Top and Bottom' },
+      { value: 'horizontal', label: 'Left and Right' },
+      { value: 'top', label: 'Top' },
+      { value: 'right', label: 'Right' },
+      { value: 'bottom', label: 'Bottom' },
+      { value: 'left', label: 'Left' }
+    ];
+    const MODE_LABELS = MODE_OPTIONS.reduce((acc, option) => {
+      acc[option.value] = option.label;
+      return acc;
+    }, {});
+    const MODE_TITLE_LABELS = {
+      all: 'All Side',
+      vertical: 'Top and Bottom',
+      horizontal: 'Left and Right',
+      top: 'Top',
+      right: 'Right',
+      bottom: 'Bottom',
+      left: 'Left'
+    };
+    const MODE_ICON = [
+      '<svg class="mode-icon-svg" viewBox="0 0 18 18" aria-hidden="true">',
+      '<rect class="mode-icon-base" x="2.5" y="2.5" width="13" height="13" rx="0"></rect>',
+      '<line class="mode-icon-side mode-icon-top" x1="2.5" y1="2.5" x2="15.5" y2="2.5"></line>',
+      '<line class="mode-icon-side mode-icon-right" x1="15.5" y1="2.5" x2="15.5" y2="15.5"></line>',
+      '<line class="mode-icon-side mode-icon-bottom" x1="2.5" y1="15.5" x2="15.5" y2="15.5"></line>',
+      '<line class="mode-icon-side mode-icon-left" x1="2.5" y1="2.5" x2="2.5" y2="15.5"></line>',
+      '</svg>'
+    ].join('');
+
+    const modeGridEl = document.getElementById('mode-grid');
+    const modeTitleEl = document.getElementById('mode-title');
+    const selectionEl = document.getElementById('selection');
+    const paddingInput = document.getElementById('padding');
+    const gapInput = document.getElementById('gap');
+    const removeLastGapInput = document.getElementById('remove-last-gap');
+    const removeAllGapsInput = document.getElementById('remove-all-gaps');
+    const applyButton = document.getElementById('apply');
+
+    let uiSizeRaf = 0;
+    let currentMode = 'all';
+
+    function postToPlugin(pluginMessage) {
+      parent.postMessage({ pluginMessage }, '*');
+    }
+
+    function postUiSizeNow() {
+      const root = document.documentElement;
+      const body = document.body;
+      const width = Math.ceil(Math.max(root.scrollWidth, body.scrollWidth));
+      const height = Math.ceil(Math.max(root.scrollHeight, body.scrollHeight));
+      postToPlugin({ type: 'ui-size', width, height });
+    }
+
+    function requestUiSize() {
+      if (uiSizeRaf !== 0) return;
+      uiSizeRaf = requestAnimationFrame(() => {
+        uiSizeRaf = 0;
+        postUiSizeNow();
+      });
+    }
+
+    function sanitizeNonNegativeInput(input) {
+      const raw = Number(input.value);
+      if (!Number.isFinite(raw)) return 0;
+      return Math.max(0, raw);
+    }
+
+    function sanitizeMode(mode) {
+      return Object.prototype.hasOwnProperty.call(MODE_LABELS, mode) ? mode : 'all';
+    }
+
+    function setMode(mode) {
+      currentMode = sanitizeMode(mode);
+      const selected = modeGridEl.querySelector(`input[name="mode"][value="${currentMode}"]`);
+      if (selected) selected.checked = true;
+      updateModeTitle();
+    }
+
+    function getMode() {
+      const selected = document.querySelector('input[name="mode"]:checked');
+      return sanitizeMode(selected ? selected.value : currentMode);
+    }
+
+    function getResizePayload() {
+      return {
+        mode: getMode(),
+        padding: sanitizeNonNegativeInput(paddingInput),
+        gap: sanitizeNonNegativeInput(gapInput),
+        removeLastGap: removeLastGapInput.checked,
+        removeAllGaps: removeAllGapsInput.checked
+      };
+    }
+
+    function updateModeTitle() {
+      const mode = getMode();
+      modeTitleEl.textContent = `Mode ${MODE_TITLE_LABELS[mode] || 'All Side'}`;
+    }
+
+    function updateGapInputState() {
+      gapInput.disabled = removeAllGapsInput.checked;
+    }
+
+    function saveSetting(type, field, value) {
+      postToPlugin({ type, [field]: value });
+      requestUiSize();
+    }
+
+    function renderModeOptions() {
+      modeGridEl.innerHTML = MODE_OPTIONS.map((option) => [
+        `<label class="mode-card mode-${option.value}" title="${option.label}">`,
+        `<input type="radio" name="mode" value="${option.value}" ${option.value === currentMode ? 'checked' : ''} aria-label="${option.label}" />`,
+        `<span>${MODE_ICON}</span>`,
+        '</label>'
+      ].join('')).join('');
+    }
+
+    renderModeOptions();
+    setMode(currentMode);
+    updateGapInputState();
+
+    modeGridEl.addEventListener('change', (event) => {
+      const target = event.target;
+      if (!target || target.name !== 'mode') return;
+      setMode(target.value);
+      saveSetting('save-mode', 'mode', currentMode);
+    });
+
+    paddingInput.addEventListener('input', () => {
+      saveSetting('save-padding', 'padding', sanitizeNonNegativeInput(paddingInput));
+    });
+
+    gapInput.addEventListener('input', () => {
+      saveSetting('save-gap', 'gap', sanitizeNonNegativeInput(gapInput));
+    });
+
+    removeLastGapInput.addEventListener('change', () => {
+      saveSetting('save-remove-last-gap', 'removeLastGap', removeLastGapInput.checked);
+    });
+
+    removeAllGapsInput.addEventListener('change', () => {
+      updateGapInputState();
+      saveSetting('save-remove-all-gaps', 'removeAllGaps', removeAllGapsInput.checked);
+    });
+
+    applyButton.addEventListener('click', () => {
+      const payload = getResizePayload();
+      postToPlugin({
+        type: 'resize',
+        mode: payload.mode,
+        padding: payload.padding,
+        gap: payload.gap,
+        removeLastGap: payload.removeLastGap,
+        removeAllGaps: payload.removeAllGaps
+      });
+    });
+
+    const messageHandlers = {
+      'selection-info': (msg) => {
+        selectionEl.textContent = `${msg.frameCount} Frame${msg.frameCount === 1 ? '' : 's'} Selected`;
+      },
+      'set-mode': (msg) => {
+        setMode(msg.mode);
+      },
+      'set-padding': (msg) => {
+        const value = Number(msg.padding ?? 0);
+        const safeValue = Number.isFinite(value) ? Math.max(0, value) : 0;
+        paddingInput.value = safeValue === 0 ? '' : String(safeValue);
+      },
+      'set-gap': (msg) => {
+        const value = Number(msg.gap ?? 0);
+        const safeValue = Number.isFinite(value) ? Math.max(0, value) : 0;
+        gapInput.value = safeValue === 0 ? '' : String(safeValue);
+      },
+      'set-remove-last-gap': (msg) => {
+        removeLastGapInput.checked = msg.removeLastGap === true;
+      },
+      'set-remove-all-gaps': (msg) => {
+        removeAllGapsInput.checked = msg.removeAllGaps === true;
+        updateGapInputState();
+      }
+    };
+
+    onmessage = (event) => {
+      const msg = event.data && event.data.pluginMessage;
+      if (!msg || typeof msg !== 'object') return;
+
+      const handler = messageHandlers[msg.type];
+      if (!handler) return;
+      handler(msg);
+      requestUiSize();
+    };
+
+    postToPlugin({ type: 'ui-ready' });
+    requestUiSize();
+    window.addEventListener('resize', requestUiSize);
+  </script>
+</body>
+</html>
+
