@@ -320,9 +320,9 @@ function getPrimaryAxisForGap(frame, entries) {
   return spreadY >= spreadX ? "y" : "x";
 }
 
-function getGapAxisHint(mode) {
-  if (mode === "horizontal" || mode === "left" || mode === "right") return "x";
-  if (mode === "vertical" || mode === "top" || mode === "bottom") return "y";
+function getGapAxisHint(_mode) {
+  // Gap direction should be content-driven for every resize mode.
+  // This keeps gap tools consistent in all modes (all/top/bottom/left/right/horizontal/vertical).
   return null;
 }
 
@@ -452,11 +452,15 @@ function applyBounds(frame, mode, contentBounds, padding) {
   const oldY = frame.y;
   const oldWidth = frame.width;
   const oldHeight = frame.height;
+  const standardHeight = contentBounds.maxY - contentBounds.minY + padding * 2;
   const hasBottomConstrainedChildren =
     Array.isArray(contentBounds.bottomConstrainedChildren) &&
     contentBounds.bottomConstrainedChildren.length > 0 &&
     typeof contentBounds.bottomConstrainedGroupMinY === "number" &&
     typeof contentBounds.bottomConstrainedGroupMaxY === "number";
+  const shouldApplyBottomConstraintResize =
+    hasBottomConstrainedChildren &&
+    (mode === "bottom" || mode === "all" || mode === "vertical");
 
   let newWidth = oldWidth;
   let newHeight = oldHeight;
@@ -472,11 +476,24 @@ function applyBounds(frame, mode, contentBounds, padding) {
   }
 
   if (mode === "all" || mode === "vertical") {
-    newHeight = contentBounds.maxY - contentBounds.minY + padding * 2;
+    if (shouldApplyBottomConstraintResize) {
+      const nonBottomMaxY = typeof contentBounds.maxYWithoutBottomConstraint === "number"
+        ? contentBounds.maxYWithoutBottomConstraint
+        : contentBounds.minY;
+      const nonBottomHeight = Math.max(0, nonBottomMaxY - contentBounds.minY);
+      const bottomConstrainedHeight = Math.max(
+        0,
+        contentBounds.bottomConstrainedGroupMaxY - contentBounds.bottomConstrainedGroupMinY
+      );
+      const constrainedHeight = nonBottomHeight + bottomConstrainedHeight + padding * 2;
+      newHeight = Math.min(standardHeight, constrainedHeight);
+    } else {
+      newHeight = standardHeight;
+    }
   } else if (mode === "top") {
     newHeight = oldHeight - contentBounds.minY + padding;
   } else if (mode === "bottom") {
-    if (hasBottomConstrainedChildren) {
+    if (shouldApplyBottomConstraintResize) {
       const nonBottomMaxY = typeof contentBounds.maxYWithoutBottomConstraint === "number"
         ? contentBounds.maxYWithoutBottomConstraint
         : 0;
@@ -504,7 +521,7 @@ function applyBounds(frame, mode, contentBounds, padding) {
     frame.y = newY;
     restoreChildGeometry(frame, preservedGeometry);
 
-    if (mode === "bottom" && hasBottomConstrainedChildren) {
+    if (shouldApplyBottomConstraintResize) {
       let currentBottom = Number.NEGATIVE_INFINITY;
       for (const child of contentBounds.bottomConstrainedChildren) {
         if (!("y" in child) || !("height" in child)) continue;
