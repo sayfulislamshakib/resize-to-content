@@ -43,13 +43,6 @@ const SETTING_DEFS = {
     sanitize: sanitizeBoolean,
     uiType: "set-remove-last-gap",
     field: "removeLastGap"
-  },
-  removeAllGaps: {
-    key: "resize-to-content.remove-all-gaps",
-    defaultValue: false,
-    sanitize: sanitizeBoolean,
-    uiType: "set-remove-all-gaps",
-    field: "removeAllGaps"
   }
 };
 
@@ -57,16 +50,14 @@ const SAVE_MESSAGE_TO_SETTING = {
   "save-mode": "mode",
   "save-padding": "padding",
   "save-gap": "gap",
-  "save-remove-last-gap": "removeLastGap",
-  "save-remove-all-gaps": "removeAllGaps"
+  "save-remove-last-gap": "removeLastGap"
 };
 
 const settings = {
   mode: SETTING_DEFS.mode.defaultValue,
   padding: SETTING_DEFS.padding.defaultValue,
   gap: SETTING_DEFS.gap.defaultValue,
-  removeLastGap: SETTING_DEFS.removeLastGap.defaultValue,
-  removeAllGaps: SETTING_DEFS.removeAllGaps.defaultValue
+  removeLastGap: SETTING_DEFS.removeLastGap.defaultValue
 };
 
 const RELAUNCH_KEY = "open";
@@ -390,51 +381,6 @@ function collapseGapToImmediatePrevious(frame, targetGap, axisHint = null) {
   }
 }
 
-function collapseGapsForAllConsecutive(frame, targetGap, axisHint = null) {
-  const ordered = getOrderedGapEntries(frame, axisHint);
-  if (!ordered) return false;
-
-  const { axis, entries } = ordered;
-
-  try {
-    // Keep resize stable: move only one child per run, starting from the trailing pair.
-    for (let i = entries.length - 1; i >= 1; i -= 1) {
-      const entry = entries[i];
-      const prevEntry = entries[i - 1];
-      const gap = axis === "x"
-        ? entry.bounds.minX - prevEntry.bounds.maxX
-        : entry.bounds.minY - prevEntry.bounds.maxY;
-      if (gap < 0) continue;
-
-      const delta = targetGap - gap;
-      if (delta === 0) continue;
-
-      if (axis === "x") {
-        if (!("x" in entry.child)) return false;
-        entry.child.x += delta;
-      } else {
-        if (!("y" in entry.child)) return false;
-        entry.child.y += delta;
-      }
-
-      return true;
-    }
-
-    return false;
-  } catch (_error) {
-    if (frame.layoutMode !== "NONE" && typeof frame.itemSpacing === "number") {
-      try {
-        const hadChange = frame.itemSpacing !== targetGap;
-        frame.itemSpacing = targetGap;
-        return hadChange;
-      } catch (_spacingError) {
-        return false;
-      }
-    }
-    return false;
-  }
-}
-
 function applyBounds(frame, mode, contentBounds, padding) {
   const frozenChildConstraints = captureAndFreezeChildConstraints(frame);
   const preservedGeometry = captureChildGeometry(frame);
@@ -533,7 +479,7 @@ function applyBounds(frame, mode, contentBounds, padding) {
   }
 }
 
-function resizeSelectedFrames(mode, padding, gap, removeLastGap, removeAllGaps) {
+function resizeSelectedFrames(mode, padding, gap, removeLastGap) {
   const frames = figma.currentPage.selection.filter(isFrameNode);
   if (frames.length === 0) {
     figma.notify("Select at least one frame.");
@@ -541,14 +487,11 @@ function resizeSelectedFrames(mode, padding, gap, removeLastGap, removeAllGaps) 
   }
 
   const gapAxisHint = getGapAxisHint(mode);
-  // In "all" mode, use primary axis detection (null hint) to avoid diagonal reflow.
-  const gapAxes = gapAxisHint ? [gapAxisHint] : [null];
   let resized = 0;
   let skippedNoContent = 0;
   let skippedRotation = 0;
   let skippedErrors = 0;
   let removedLastGapCount = 0;
-  let removedAllGapsCount = 0;
 
   for (const frame of frames) {
     try {
@@ -559,13 +502,7 @@ function resizeSelectedFrames(mode, padding, gap, removeLastGap, removeAllGaps) 
         continue;
       }
 
-      if (removeAllGaps) {
-        let changed = false;
-        for (const axisHint of gapAxes) {
-          if (collapseGapsForAllConsecutive(frame, gap, axisHint)) changed = true;
-        }
-        if (changed) removedAllGapsCount += 1;
-      } else if (removeLastGap) {
+      if (removeLastGap) {
         if (collapseGapToImmediatePrevious(frame, gap, gapAxisHint)) {
           removedLastGapCount += 1;
         }
@@ -587,9 +524,7 @@ function resizeSelectedFrames(mode, padding, gap, removeLastGap, removeAllGaps) 
   const total = frames.length;
   const summary = [`Done. Resized ${resized} of ${total} frame${total === 1 ? "" : "s"}`];
 
-  if (removeAllGaps) {
-    summary.push(`Adjusted one consecutive gap to ${gap}px in ${removedAllGapsCount} frame${removedAllGapsCount === 1 ? "" : "s"}`);
-  } else if (removeLastGap) {
+  if (removeLastGap) {
     summary.push(`Set the last gap to ${gap}px in ${removedLastGapCount} frame${removedLastGapCount === 1 ? "" : "s"}`);
   }
 
@@ -644,8 +579,7 @@ function getSanitizedResizePayload(msg) {
     mode: SETTING_DEFS.mode.sanitize(msg.mode),
     padding: SETTING_DEFS.padding.sanitize(msg.padding),
     gap: SETTING_DEFS.gap.sanitize(msg.gap),
-    removeLastGap: SETTING_DEFS.removeLastGap.sanitize(msg.removeLastGap),
-    removeAllGaps: SETTING_DEFS.removeAllGaps.sanitize(msg.removeAllGaps)
+    removeLastGap: SETTING_DEFS.removeLastGap.sanitize(msg.removeLastGap)
   };
 }
 
@@ -679,16 +613,14 @@ figma.ui.onmessage = (msg) => {
       saveSetting("mode", payload.mode),
       saveSetting("padding", payload.padding),
       saveSetting("gap", payload.gap),
-      saveSetting("removeLastGap", payload.removeLastGap),
-      saveSetting("removeAllGaps", payload.removeAllGaps)
+      saveSetting("removeLastGap", payload.removeLastGap)
     ]);
 
     resizeSelectedFrames(
       payload.mode,
       payload.padding,
       payload.gap,
-      payload.removeLastGap,
-      payload.removeAllGaps
+      payload.removeLastGap
     );
   }
 };

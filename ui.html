@@ -273,13 +273,6 @@
         Set gap between the last two items
       </label>
     </div>
-
-    <div class="check-row">
-      <label for="remove-all-gaps">
-        <input id="remove-all-gaps" type="checkbox" />
-        Set gap for all consecutive items
-      </label>
-    </div>
   </div>
 
   <div id="selection" class="selection">1 Frame Selected</div>
@@ -324,7 +317,6 @@
     const paddingInput = document.getElementById('padding');
     const gapInput = document.getElementById('gap');
     const removeLastGapInput = document.getElementById('remove-last-gap');
-    const removeAllGapsInput = document.getElementById('remove-all-gaps');
     const applyButton = document.getElementById('apply');
 
     let uiSizeRaf = 0;
@@ -377,8 +369,7 @@
         mode: getMode(),
         padding: sanitizeNonNegativeInput(paddingInput),
         gap: sanitizeNonNegativeInput(gapInput),
-        removeLastGap: removeLastGapInput.checked,
-        removeAllGaps: removeAllGapsInput.checked
+        removeLastGap: removeLastGapInput.checked
       };
     }
 
@@ -438,10 +429,6 @@
       saveSetting('save-remove-last-gap', 'removeLastGap', removeLastGapInput.checked);
     });
 
-    removeAllGapsInput.addEventListener('change', () => {
-      saveSetting('save-remove-all-gaps', 'removeAllGaps', removeAllGapsInput.checked);
-    });
-
     applyButton.addEventListener('click', () => {
       postToPlugin({ type: 'resize', ...getResizePayload() });
     });
@@ -465,9 +452,6 @@
       },
       'set-remove-last-gap': (msg) => {
         removeLastGapInput.checked = msg.removeLastGap === true;
-      },
-      'set-remove-all-gaps': (msg) => {
-        removeAllGapsInput.checked = msg.removeAllGaps === true;
       }
     };
 
