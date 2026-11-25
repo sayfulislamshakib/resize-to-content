@@ -326,11 +326,17 @@
   </div>
 
   <div class="check-section">
-    <div class="mode-title">Remove</div>
+    <div class="mode-title">Options</div>
     <div class="check-row">
       <label for="remove-last-gap">
         <input id="remove-last-gap" type="checkbox" />
         Set gap between the last two items
+      </label>
+    </div>
+    <div class="check-row">
+      <label for="include-absolute-height">
+        <input id="include-absolute-height" type="checkbox" />
+        Include absolute item height
       </label>
     </div>
   </div>
@@ -366,6 +372,7 @@
     const paddingInput = document.getElementById('padding');
     const gapInput = document.getElementById('gap');
     const removeLastGapInput = document.getElementById('remove-last-gap');
+    const includeAbsoluteHeightInput = document.getElementById('include-absolute-height');
     const applyButton = document.getElementById('apply');
 
     const modeInputs = new Map();
@@ -444,7 +451,8 @@
         mode: currentMode,
         padding: sanitizeNonNegativeValue(paddingInput.value),
         gap: sanitizeNonNegativeValue(gapInput.value),
-        removeLastGap: removeLastGapInput.checked
+        removeLastGap: removeLastGapInput.checked,
+        includeAbsoluteHeight: includeAbsoluteHeightInput.checked
       });
     }
 
@@ -534,7 +542,22 @@
       saveSetting('save-remove-last-gap', 'removeLastGap', removeLastGapInput.checked);
     });
 
+    includeAbsoluteHeightInput.addEventListener('change', () => {
+      saveSetting(
+        'save-include-absolute-height',
+        'includeAbsoluteHeight',
+        includeAbsoluteHeightInput.checked
+      );
+    });
+
     applyButton.addEventListener('click', triggerResize);
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter') return;
+      if (event.target === applyButton || event.target === paddingInput || event.target === gapInput) return;
+      event.preventDefault();
+      triggerResize();
+    });
 
     const messageHandlers = {
       'selection-info': (msg) => {
@@ -553,6 +576,9 @@
       },
       'set-remove-last-gap': (msg) => {
         removeLastGapInput.checked = msg.removeLastGap === true;
+      },
+      'set-include-absolute-height': (msg) => {
+        includeAbsoluteHeightInput.checked = msg.includeAbsoluteHeight === true;
       }
     };
 

@@ -2,9 +2,10 @@ const UI_WIDTH = 292;
 const MIN_UI_HEIGHT = 220;
 const MAX_UI_HEIGHT = 900;
 const EPSILON = 0.01;
-const ROTATION_EPSILON = 1e-4;
+const BOTTOM_EDGE_TOLERANCE = 1;
+const ROTATION_EPSILON = 0.01;
 
-figma.showUI(__html__, { width: UI_WIDTH, height: 296 });
+figma.showUI(__html__, { width: UI_WIDTH, height: 318 });
 
 const VALID_MODES = new Set([
   "all",
@@ -40,6 +41,12 @@ const SETTING_DEFS = {
     defaultValue: false,
     sanitize: sanitizeBoolean,
     uiType: "set-remove-last-gap"
+  },
+  includeAbsoluteHeight: {
+    key: "resize-to-content.include-absolute-height",
+    defaultValue: false,
+    sanitize: sanitizeBoolean,
+    uiType: "set-include-absolute-height"
   }
 };
 
@@ -47,14 +54,16 @@ const SAVE_MESSAGE_TO_SETTING = {
   "save-mode": "mode",
   "save-padding": "padding",
   "save-gap": "gap",
-  "save-remove-last-gap": "removeLastGap"
+  "save-remove-last-gap": "removeLastGap",
+  "save-include-absolute-height": "includeAbsoluteHeight"
 };
 
 const settings = {
   mode: SETTING_DEFS.mode.defaultValue,
   padding: SETTING_DEFS.padding.defaultValue,
   gap: SETTING_DEFS.gap.defaultValue,
-  removeLastGap: SETTING_DEFS.removeLastGap.defaultValue
+  removeLastGap: SETTING_DEFS.removeLastGap.defaultValue,
+  includeAbsoluteHeight: SETTING_DEFS.includeAbsoluteHeight.defaultValue
 };
 
 const RELAUNCH_KEY = "open";
@@ -93,11 +102,19 @@ function resizeUi(height) {
 }
 
 function isFrameNode(node) {
-  return node.type === "FRAME";
+  return node.type === "FRAME" || node.type === "COMPONENT";
 }
 
 function isAutoLayoutFrame(frame) {
   return frame.layoutMode === "HORIZONTAL" || frame.layoutMode === "VERTICAL";
+}
+
+function isAbsolutePositionedChild(child) {
+  try {
+    return "layoutPositioning" in child && child.layoutPositioning === "ABSOLUTE";
+  } catch (_error) {
+    return false;
+  }
 }
 
 function isAutoLayoutFlowChild(child, frame) {
@@ -144,6 +161,20 @@ function isBottomConstrainedNode(node) {
 function isBottomConstrained(child, frame) {
   if (isAutoLayoutFlowChild(child, frame)) return false;
   return isBottomConstrainedNode(child);
+}
+
+function isStretchOrScaleVertical(node) {
+  if (!("constraints" in node) || !node.constraints) return false;
+  const vertical = node.constraints.vertical;
+  return vertical === "STRETCH" || vertical === "SCALE";
+}
+
+function isFlushAtFrameBottom(child, frame, bounds) {
+  if (isAutoLayoutFlowChild(child, frame)) return false;
+  if (!("y" in child)) return false;
+  if (isStretchOrScaleVertical(child)) return false;
+  if (bounds.minY <= EPSILON) return false;
+  return Math.abs(bounds.maxY - frame.height) <= BOTTOM_EDGE_TOLERANCE;
 }
 
 function countSelectedFrames() {
@@ -278,6 +309,26 @@ function getChildBoundsInFrame(child, frame) {
   return null;
 }
 
+function getMergedSpanHeight(intervals) {
+  if (intervals.length === 0) return 0;
+  intervals.sort((a, b) => a[0] - b[0]);
+  let total = 0;
+  let curStart = intervals[0][0];
+  let curEnd = intervals[0][1];
+  for (let i = 1; i < intervals.length; i += 1) {
+    const [start, end] = intervals[i];
+    if (start <= curEnd) {
+      curEnd = Math.max(curEnd, end);
+    } else {
+      total += Math.max(0, curEnd - curStart);
+      curStart = start;
+      curEnd = end;
+    }
+  }
+  total += Math.max(0, curEnd - curStart);
+  return total;
+}
+
 function getContentBounds(frame) {
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
@@ -292,11 +343,23 @@ function getContentBounds(frame) {
   let bottomConstrainedGroupMinY = Number.POSITIVE_INFINITY;
   let bottomConstrainedGroupMaxY = Number.NEGATIVE_INFINITY;
   const bottomConstrainedChildren = [];
+  let maxYWithoutBottomAnchored = Number.NEGATIVE_INFINITY;
+  let bottomAnchoredGroupMinY = Number.POSITIVE_INFINITY;
+  let bottomAnchoredGroupMaxY = Number.NEGATIVE_INFINITY;
+  const bottomAnchoredChildren = [];
+  const absoluteIntervals = [];
   let found = false;
 
   for (const child of frame.children) {
     const bounds = getChildBoundsInFrame(child, frame);
     if (!bounds) continue;
+
+    if (isAbsolutePositionedChild(child)) {
+      if (bounds.maxY > bounds.minY) {
+        absoluteIntervals.push([bounds.minY, bounds.maxY]);
+      }
+      continue;
+    }
 
     minX = Math.min(minX, bounds.minX);
     minY = Math.min(minY, bounds.minY);
@@ -311,12 +374,23 @@ function getContentBounds(frame) {
       hasFlowChildren = true;
     }
 
-    if (isBottomConstrained(child, frame) && "y" in child) {
+    const explicitBottom = isBottomConstrained(child, frame) && "y" in child;
+    const flushBottom = !explicitBottom && isFlushAtFrameBottom(child, frame, bounds);
+
+    if (explicitBottom) {
       bottomConstrainedGroupMinY = Math.min(bottomConstrainedGroupMinY, bounds.minY);
       bottomConstrainedGroupMaxY = Math.max(bottomConstrainedGroupMaxY, bounds.maxY);
       bottomConstrainedChildren.push(child);
     } else {
       maxYWithoutBottomConstraint = Math.max(maxYWithoutBottomConstraint, bounds.maxY);
+    }
+
+    if (explicitBottom || flushBottom) {
+      bottomAnchoredGroupMinY = Math.min(bottomAnchoredGroupMinY, bounds.minY);
+      bottomAnchoredGroupMaxY = Math.max(bottomAnchoredGroupMaxY, bounds.maxY);
+      bottomAnchoredChildren.push(child);
+    } else {
+      maxYWithoutBottomAnchored = Math.max(maxYWithoutBottomAnchored, bounds.maxY);
     }
     found = true;
   }
@@ -324,11 +398,13 @@ function getContentBounds(frame) {
   if (!found) return null;
 
   const hasBottomConstrainedChildren = bottomConstrainedChildren.length > 0;
+  const hasBottomAnchoredChildren = bottomAnchoredChildren.length > 0;
   return {
     minX,
     minY,
     maxX,
     maxY,
+    absoluteHeight: getMergedSpanHeight(absoluteIntervals),
     flowBounds: hasFlowChildren
       ? { minX: flowMinX, minY: flowMinY, maxX: flowMaxX, maxY: flowMaxY }
       : null,
@@ -341,7 +417,17 @@ function getContentBounds(frame) {
     bottomConstrainedGroupMaxY: hasBottomConstrainedChildren
       ? bottomConstrainedGroupMaxY
       : null,
-    bottomConstrainedChildren
+    bottomConstrainedChildren,
+    maxYWithoutBottomAnchored: Number.isFinite(maxYWithoutBottomAnchored)
+      ? maxYWithoutBottomAnchored
+      : null,
+    bottomAnchoredGroupMinY: hasBottomAnchoredChildren
+      ? bottomAnchoredGroupMinY
+      : null,
+    bottomAnchoredGroupMaxY: hasBottomAnchoredChildren
+      ? bottomAnchoredGroupMaxY
+      : null,
+    bottomAnchoredChildren
   };
 }
 
@@ -414,7 +500,10 @@ function captureChildGeometry(frame) {
       const item = {
         child,
         x: child.x,
-        y: child.y
+        y: child.y,
+        isAbsoluteChild: isAbsolutePositionedChild(child),
+        horizontalConstraint: "constraints" in child && child.constraints ? child.constraints.horizontal : "MIN",
+        verticalConstraint: "constraints" in child && child.constraints ? child.constraints.vertical : "MIN"
       };
 
       if (
@@ -435,7 +524,7 @@ function captureChildGeometry(frame) {
   return snapshot;
 }
 
-function restoreChildGeometry(snapshot, shiftX, shiftY) {
+function restoreChildGeometry(snapshot, shiftX, shiftY, deltaWidth = 0, deltaHeight = 0) {
   for (const item of snapshot) {
     try {
       const child = item.child;
@@ -451,11 +540,25 @@ function restoreChildGeometry(snapshot, shiftX, shiftY) {
       }
 
       if ("x" in child) {
-        const targetX = item.x + shiftX;
+        let targetX = item.x + shiftX;
+        if (item.isAbsoluteChild) {
+          if (item.horizontalConstraint === "MAX" || item.horizontalConstraint === "RIGHT") {
+            targetX = item.x + deltaWidth;
+          } else if (item.horizontalConstraint === "CENTER") {
+            targetX = item.x + deltaWidth / 2;
+          }
+        }
         if (Math.abs(child.x - targetX) > EPSILON) child.x = targetX;
       }
       if ("y" in child) {
-        const targetY = item.y + shiftY;
+        let targetY = item.y + shiftY;
+        if (item.isAbsoluteChild) {
+          if (item.verticalConstraint === "MAX" || item.verticalConstraint === "BOTTOM") {
+            targetY = item.y + deltaHeight;
+          } else if (item.verticalConstraint === "CENTER") {
+            targetY = item.y + deltaHeight / 2;
+          }
+        }
         if (Math.abs(child.y - targetY) > EPSILON) child.y = targetY;
       }
     } catch (_error) {
@@ -488,6 +591,7 @@ function getPrimaryAxisForGap(frame, entries) {
 function getOrderedGapEntries(frame) {
   const entries = [];
   for (const child of frame.children) {
+    if (isAbsolutePositionedChild(child)) continue;
     const bounds = getChildBoundsInFrame(child, frame);
     if (!bounds) continue;
     entries.push({ child, bounds });
@@ -522,12 +626,18 @@ function countVisibleFlowChildren(frame) {
 
 function setAutoLayoutItemSpacing(frame, targetGap) {
   if (!isAutoLayoutFrame(frame) || typeof frame.itemSpacing !== "number") return false;
-  if (frame.primaryAxisAlignItems === "SPACE_BETWEEN") return false;
   if (countVisibleFlowChildren(frame) < 2) return false;
   try {
-    if (Math.abs(frame.itemSpacing - targetGap) <= EPSILON) return false;
-    frame.itemSpacing = targetGap;
-    return true;
+    let changed = false;
+    if (frame.primaryAxisAlignItems === "SPACE_BETWEEN") {
+      frame.primaryAxisAlignItems = "MIN";
+      changed = true;
+    }
+    if (Math.abs(frame.itemSpacing - targetGap) > EPSILON) {
+      frame.itemSpacing = targetGap;
+      changed = true;
+    }
+    return changed;
   } catch (_spacingError) {
     return false;
   }
@@ -578,28 +688,129 @@ function collapseGapToImmediatePrevious(frame, targetGap) {
   }
 }
 
-function applyBounds(frame, mode, contentBounds, padding, bottomConstraintGap = 0) {
-  const frozenChildConstraints = captureAndFreezeChildConstraints(frame);
+function unlockAxisForResize(frame, axis, targetSize) {
+  const isWidth = axis === "width";
+  const sizingProp = isWidth ? "layoutSizingHorizontal" : "layoutSizingVertical";
+  const minProp = isWidth ? "minWidth" : "minHeight";
+  const maxProp = isWidth ? "maxWidth" : "maxHeight";
+
+  try {
+    if (sizingProp in frame && frame[sizingProp] && frame[sizingProp] !== "FIXED") {
+      frame[sizingProp] = "FIXED";
+    }
+  } catch (_error) {
+    // Ignore if layoutSizing is not writable for this node/parent.
+  }
+
+  if (isAutoLayoutFrame(frame)) {
+    const isPrimary =
+      (isWidth && frame.layoutMode === "HORIZONTAL") ||
+      (!isWidth && frame.layoutMode === "VERTICAL");
+    const axisModeProp = isPrimary ? "primaryAxisSizingMode" : "counterAxisSizingMode";
+    try {
+      if (axisModeProp in frame && frame[axisModeProp] === "AUTO") {
+        frame[axisModeProp] = "FIXED";
+      }
+    } catch (_error) {
+      // Ignore if sizing mode is not writable.
+    }
+  }
+
+  try {
+    if (typeof frame[minProp] === "number" && targetSize < frame[minProp]) {
+      frame[minProp] = null;
+    }
+    if (typeof frame[maxProp] === "number" && targetSize > frame[maxProp]) {
+      frame[maxProp] = null;
+    }
+  } catch (_error) {
+    // Ignore if min/max constraints are not supported or writable.
+  }
+}
+
+function setFramePaddingSafely(frame, prop, target) {
+  if (!(prop in frame) || !Number.isFinite(target)) return;
+  const safeTarget = Math.max(0, target);
+  if (Math.abs(frame[prop] - safeTarget) <= EPSILON) return;
+  try {
+    frame[prop] = safeTarget;
+  } catch (_error) {
+    // Ignore non-writable padding properties.
+  }
+}
+
+function applyBounds(
+  frame,
+  mode,
+  contentBounds,
+  padding,
+  bottomConstraintGap = 0,
+  includeAbsoluteHeight = false
+) {
   const preservedGeometry = captureChildGeometry(frame);
+  const frozenChildConstraints = captureAndFreezeChildConstraints(frame);
   const oldX = frame.x;
   const oldY = frame.y;
   const oldWidth = frame.width;
   const oldHeight = frame.height;
+  const extraAbsoluteHeight = includeAbsoluteHeight ? contentBounds.absoluteHeight : 0;
+  const effectiveBottomGap = bottomConstraintGap + extraAbsoluteHeight;
   const standardHeight = contentBounds.maxY - contentBounds.minY + padding * 2;
   const standardBottomHeight = contentBounds.maxY + padding;
-  const hasBottomConstrainedChildren = contentBounds.bottomConstrainedChildren.length > 0;
-  const hasNonBottomContent = typeof contentBounds.maxYWithoutBottomConstraint === "number";
-  const bottomGapToCollapse = hasBottomConstrainedChildren && hasNonBottomContent
-    ? contentBounds.bottomConstrainedGroupMinY - contentBounds.maxYWithoutBottomConstraint
+  const isBottomResizeMode = mode === "bottom" || mode === "all" || mode === "vertical";
+
+  const isBottomAnchoredFlush =
+    contentBounds.bottomAnchoredChildren.length > 0 &&
+    oldHeight - contentBounds.bottomAnchoredGroupMaxY <= BOTTOM_EDGE_TOLERANCE;
+  const isBottomConstrainedFlush =
+    contentBounds.bottomConstrainedChildren.length > 0 &&
+    oldHeight - contentBounds.bottomConstrainedGroupMaxY <= BOTTOM_EDGE_TOLERANCE;
+
+  const hasBottomAnchoredExpand =
+    isBottomResizeMode &&
+    contentBounds.bottomAnchoredChildren.length > 0 &&
+    typeof contentBounds.maxYWithoutBottomAnchored === "number" &&
+    (contentBounds.maxYWithoutBottomAnchored > oldHeight + EPSILON ||
+      (isBottomAnchoredFlush &&
+        contentBounds.maxYWithoutBottomAnchored > contentBounds.bottomAnchoredGroupMinY + EPSILON));
+
+  const explicitBottomGap =
+    contentBounds.bottomConstrainedChildren.length > 0 &&
+    typeof contentBounds.maxYWithoutBottomConstraint === "number"
+      ? contentBounds.bottomConstrainedGroupMinY - contentBounds.maxYWithoutBottomConstraint
+      : null;
+
+  const hasBottomConstraintGapAdjust =
+    !hasBottomAnchoredExpand &&
+    isBottomResizeMode &&
+    explicitBottomGap !== null &&
+    (explicitBottomGap > effectiveBottomGap + EPSILON ||
+      ((isBottomConstrainedFlush || (extraAbsoluteHeight > 0 && explicitBottomGap >= -EPSILON)) &&
+        explicitBottomGap < effectiveBottomGap - EPSILON));
+
+  const shouldRepositionBottomChildren = hasBottomAnchoredExpand || hasBottomConstraintGapAdjust;
+  const shouldAllowBottomGrow =
+    hasBottomAnchoredExpand ||
+    (hasBottomConstraintGapAdjust && explicitBottomGap < effectiveBottomGap - EPSILON);
+  const activeBottomChildren = hasBottomAnchoredExpand
+    ? contentBounds.bottomAnchoredChildren
+    : contentBounds.bottomConstrainedChildren;
+  const activeNonBottomMaxY = hasBottomAnchoredExpand
+    ? contentBounds.maxYWithoutBottomAnchored
+    : contentBounds.maxYWithoutBottomConstraint;
+  const activeBottomGroupMinY = hasBottomAnchoredExpand
+    ? contentBounds.bottomAnchoredGroupMinY
+    : contentBounds.bottomConstrainedGroupMinY;
+  const activeBottomGroupMaxY = hasBottomAnchoredExpand
+    ? contentBounds.bottomAnchoredGroupMaxY
+    : contentBounds.bottomConstrainedGroupMaxY;
+  const bottomGroupHeight = shouldRepositionBottomChildren
+    ? Math.max(0, activeBottomGroupMaxY - activeBottomGroupMinY)
     : 0;
-  const shouldApplyBottomConstraintResize =
-    hasBottomConstrainedChildren &&
-    hasNonBottomContent &&
-    bottomGapToCollapse > bottomConstraintGap + EPSILON &&
-    (mode === "bottom" || mode === "all" || mode === "vertical");
-  const bottomConstrainedHeight = shouldApplyBottomConstraintResize
-    ? Math.max(0, contentBounds.bottomConstrainedGroupMaxY - contentBounds.bottomConstrainedGroupMinY)
-    : 0;
+  const directAbsoluteHeightAddition =
+    !shouldRepositionBottomChildren && contentBounds.bottomConstrainedChildren.length === 0
+      ? extraAbsoluteHeight
+      : 0;
 
   let newWidth = oldWidth;
   let newHeight = oldHeight;
@@ -613,22 +824,25 @@ function applyBounds(frame, mode, contentBounds, padding, bottomConstraintGap = 
   }
 
   if (mode === "all" || mode === "vertical") {
-    if (shouldApplyBottomConstraintResize) {
-      const nonBottomHeight = Math.max(0, contentBounds.maxYWithoutBottomConstraint - contentBounds.minY);
-      const constrainedHeight = nonBottomHeight + bottomConstraintGap + bottomConstrainedHeight + padding * 2;
-      newHeight = Math.min(standardHeight, constrainedHeight);
+    if (shouldRepositionBottomChildren) {
+      const nonBottomHeight = Math.max(0, activeNonBottomMaxY - contentBounds.minY);
+      const targetHeight = nonBottomHeight + effectiveBottomGap + bottomGroupHeight + padding * 2;
+      newHeight = shouldAllowBottomGrow
+        ? Math.max(standardHeight, targetHeight)
+        : Math.min(standardHeight, targetHeight);
     } else {
-      newHeight = standardHeight;
+      newHeight = standardHeight + directAbsoluteHeightAddition;
     }
   } else if (mode === "top") {
     newHeight = oldHeight - contentBounds.minY + padding;
   } else if (mode === "bottom") {
-    if (shouldApplyBottomConstraintResize) {
-      const constrainedBottomHeight =
-        contentBounds.maxYWithoutBottomConstraint + bottomConstraintGap + bottomConstrainedHeight + padding;
-      newHeight = Math.min(standardBottomHeight, constrainedBottomHeight);
+    if (shouldRepositionBottomChildren) {
+      const targetBottomHeight = activeNonBottomMaxY + effectiveBottomGap + bottomGroupHeight + padding;
+      newHeight = shouldAllowBottomGrow
+        ? Math.max(standardBottomHeight, targetBottomHeight)
+        : Math.min(standardBottomHeight, targetBottomHeight);
     } else {
-      newHeight = standardBottomHeight;
+      newHeight = standardBottomHeight + directAbsoluteHeightAddition;
     }
   }
 
@@ -651,34 +865,34 @@ function applyBounds(frame, mode, contentBounds, padding, bottomConstraintGap = 
   try {
     if (isAutoLayoutFrame(frame)) {
       const flow = contentBounds.flowBounds;
-      if (shouldTrimLeft(mode) && "paddingLeft" in frame) {
-        const target = Math.max(0, flow ? flow.minX + shiftX : padding);
-        if (Math.abs(frame.paddingLeft - target) > EPSILON) frame.paddingLeft = target;
+      if (shouldTrimLeft(mode)) {
+        setFramePaddingSafely(frame, "paddingLeft", flow ? flow.minX + shiftX : padding);
       }
-      if (shouldTrimRight(mode) && "paddingRight" in frame) {
-        const target = Math.max(0, flow ? newWidth - (flow.maxX + shiftX) : padding);
-        if (Math.abs(frame.paddingRight - target) > EPSILON) frame.paddingRight = target;
+      if (shouldTrimRight(mode)) {
+        setFramePaddingSafely(frame, "paddingRight", flow ? newWidth - (flow.maxX + shiftX) : padding);
       }
-      if (shouldTrimTop(mode) && "paddingTop" in frame) {
-        const target = Math.max(0, flow ? flow.minY + shiftY : padding);
-        if (Math.abs(frame.paddingTop - target) > EPSILON) frame.paddingTop = target;
+      if (shouldTrimTop(mode)) {
+        setFramePaddingSafely(frame, "paddingTop", flow ? flow.minY + shiftY : padding);
       }
-      if (shouldTrimBottom(mode) && "paddingBottom" in frame) {
-        const target = Math.max(0, flow ? newHeight - (flow.maxY + shiftY) : padding);
-        if (Math.abs(frame.paddingBottom - target) > EPSILON) frame.paddingBottom = target;
+      if (shouldTrimBottom(mode)) {
+        setFramePaddingSafely(frame, "paddingBottom", flow ? newHeight - (flow.maxY + shiftY) : padding);
       }
     }
 
-    if (Math.abs(frame.width - newWidth) > EPSILON || Math.abs(frame.height - newHeight) > EPSILON) {
+    const needResizeWidth = Math.abs(frame.width - newWidth) > EPSILON;
+    const needResizeHeight = Math.abs(frame.height - newHeight) > EPSILON;
+    if (needResizeWidth || needResizeHeight) {
+      if (needResizeWidth) unlockAxisForResize(frame, "width", newWidth);
+      if (needResizeHeight) unlockAxisForResize(frame, "height", newHeight);
       frame.resizeWithoutConstraints(newWidth, newHeight);
     }
     if (Math.abs(frame.x - newX) > EPSILON) frame.x = newX;
     if (Math.abs(frame.y - newY) > EPSILON) frame.y = newY;
-    restoreChildGeometry(preservedGeometry, shiftX, shiftY);
+    restoreChildGeometry(preservedGeometry, shiftX, shiftY, frame.width - oldWidth, frame.height - oldHeight);
 
-    if (shouldApplyBottomConstraintResize) {
+    if (shouldRepositionBottomChildren) {
       let currentBottom = Number.NEGATIVE_INFINITY;
-      for (const child of contentBounds.bottomConstrainedChildren) {
+      for (const child of activeBottomChildren) {
         const bounds = getChildBoundsInFrame(child, frame);
         if (!bounds) continue;
         currentBottom = Math.max(currentBottom, bounds.maxY);
@@ -688,7 +902,7 @@ function applyBounds(frame, mode, contentBounds, padding, bottomConstraintGap = 
         const targetBottom = newHeight - padding;
         const dy = targetBottom - currentBottom;
         if (Math.abs(dy) > EPSILON) {
-          for (const child of contentBounds.bottomConstrainedChildren) {
+          for (const child of activeBottomChildren) {
             if ("y" in child) child.y += dy;
           }
         }
@@ -709,14 +923,18 @@ function getSelectedFramesDeepestFirst() {
 }
 
 function ensureRelaunchData(frame) {
-  if (typeof frame.getRelaunchData === "function") {
-    const existing = frame.getRelaunchData();
-    if (existing && existing[RELAUNCH_KEY] === RELAUNCH_LABEL) return;
+  try {
+    if (typeof frame.getRelaunchData === "function") {
+      const existing = frame.getRelaunchData();
+      if (existing && existing[RELAUNCH_KEY] === RELAUNCH_LABEL) return;
+    }
+    frame.setRelaunchData({ [RELAUNCH_KEY]: RELAUNCH_LABEL });
+  } catch (_error) {
+    // Ignore relaunch data failures so resize still succeeds.
   }
-  frame.setRelaunchData({ [RELAUNCH_KEY]: RELAUNCH_LABEL });
 }
 
-function resizeSelectedFrames(mode, padding, gap, removeLastGap) {
+function resizeSelectedFrames(mode, padding, gap, removeLastGap, includeAbsoluteHeight = false) {
   const frames = getSelectedFramesDeepestFirst();
   if (frames.length === 0) {
     figma.notify("Select at least one frame.");
@@ -725,13 +943,21 @@ function resizeSelectedFrames(mode, padding, gap, removeLastGap) {
 
   const bottomConstraintGap = removeLastGap ? gap : 0;
   let resized = 0;
-  let skipped = 0;
+  let skippedInstance = 0;
+  let skippedRotation = 0;
+  let skippedEmpty = 0;
+  let skippedErrors = 0;
   let removedLastGapCount = 0;
 
   for (const frame of frames) {
     try {
-      if (isInsideInstance(frame) || Math.abs(frame.rotation) > ROTATION_EPSILON) {
-        skipped += 1;
+      if (isInsideInstance(frame)) {
+        skippedInstance += 1;
+        continue;
+      }
+
+      if (Math.abs(frame.rotation) > ROTATION_EPSILON) {
+        skippedRotation += 1;
         continue;
       }
 
@@ -741,15 +967,18 @@ function resizeSelectedFrames(mode, padding, gap, removeLastGap) {
 
       const contentBounds = getContentBounds(frame);
       if (!contentBounds) {
-        skipped += 1;
+        skippedEmpty += 1;
         continue;
       }
 
-      applyBounds(frame, mode, contentBounds, padding, bottomConstraintGap);
+      applyBounds(frame, mode, contentBounds, padding, bottomConstraintGap, includeAbsoluteHeight);
       ensureRelaunchData(frame);
       resized += 1;
-    } catch (_error) {
-      skipped += 1;
+    } catch (error) {
+      skippedErrors += 1;
+      if (typeof console !== "undefined" && typeof console.error === "function") {
+        console.error("Resize to Content failed for frame:", frame && frame.name, error);
+      }
     }
   }
 
@@ -760,7 +989,15 @@ function resizeSelectedFrames(mode, padding, gap, removeLastGap) {
     summary.push(`Set the last gap to ${gap}px in ${removedLastGapCount} frame${removedLastGapCount === 1 ? "" : "s"}`);
   }
 
-  if (skipped > 0) summary.push(`Skipped ${skipped}`);
+  const skippedTotal = skippedInstance + skippedRotation + skippedEmpty + skippedErrors;
+  if (skippedTotal > 0) {
+    const reasons = [];
+    if (skippedEmpty > 0) reasons.push("empty");
+    if (skippedRotation > 0) reasons.push("rotated");
+    if (skippedInstance > 0) reasons.push("inside instance");
+    if (skippedErrors > 0) reasons.push("error");
+    summary.push(`Skipped ${skippedTotal} (${reasons.join(", ")})`);
+  }
 
   figma.notify(summary.join(". ") + ".");
   updateSelectionInfo();
@@ -817,7 +1054,8 @@ function getSanitizedResizePayload(msg) {
     mode: SETTING_DEFS.mode.sanitize(msg.mode),
     padding: SETTING_DEFS.padding.sanitize(msg.padding),
     gap: SETTING_DEFS.gap.sanitize(msg.gap),
-    removeLastGap: SETTING_DEFS.removeLastGap.sanitize(msg.removeLastGap)
+    removeLastGap: SETTING_DEFS.removeLastGap.sanitize(msg.removeLastGap),
+    includeAbsoluteHeight: SETTING_DEFS.includeAbsoluteHeight.sanitize(msg.includeAbsoluteHeight)
   };
 }
 
@@ -850,12 +1088,14 @@ figma.ui.onmessage = (msg) => {
     saveSetting("padding", payload.padding);
     saveSetting("gap", payload.gap);
     saveSetting("removeLastGap", payload.removeLastGap);
+    saveSetting("includeAbsoluteHeight", payload.includeAbsoluteHeight);
 
     resizeSelectedFrames(
       payload.mode,
       payload.padding,
       payload.gap,
-      payload.removeLastGap
+      payload.removeLastGap,
+      payload.includeAbsoluteHeight
     );
   }
 };
