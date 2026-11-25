@@ -5,11 +5,18 @@
   <title>Resize To Content</title>
   <style>
     :root {
-      color-scheme: light;
-      --mode-accent: #1b71ff;
-      --mode-border: #d4d4d8;
-      --mode-edge: #F2F2F2;
-      --font-sans: "Roboto Flex", "Google Sans", "Segoe UI", Arial, sans-serif;
+      color-scheme: dark;
+      --bg-primary: #2c2c2c;
+      --bg-secondary: #383838;
+      --text-primary: #ffffff;
+      --text-secondary: #b3b3b3;
+      --text-tertiary: #7f7f7f;
+      --mode-accent: #0c8ce9;
+      --mode-accent-hover: #0d99ff;
+      --mode-accent-active: #0a78c8;
+      --mode-border: #444444;
+      --mode-edge: #555555;
+      --font-sans: "Inter", "Roboto Flex", "Google Sans", "Segoe UI", Arial, sans-serif;
     }
 
     body {
@@ -18,8 +25,10 @@
       padding: 16px;
       display: grid;
       gap: 12px;
-      color: #1f1f1f;
-      background: #fff;
+      color: var(--text-primary);
+      background: var(--bg-primary);
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
     }
 
     input,
@@ -27,16 +36,18 @@
       font-family: inherit;
     }
 
+    input {
+      user-select: text;
+    }
+
     .mode-section {
       display: grid;
       gap: 8px;
-      font-size: 12px;
-      color: #444;
     }
 
     .mode-title {
       font-size: 11px;
-      color: #444;
+      color: var(--text-secondary);
       font-weight: 600;
     }
 
@@ -50,7 +61,6 @@
       display: block;
       position: relative;
       cursor: pointer;
-      user-select: none;
       width: 32px;
       height: 32px;
     }
@@ -68,10 +78,6 @@
       align-items: center;
       justify-content: center;
       position: relative;
-      border: none;
-      background: transparent;
-      box-sizing: border-box;
-      transition: opacity 120ms ease;
     }
 
     .mode-card span::before {
@@ -82,17 +88,19 @@
       border-radius: 4px;
       opacity: 0;
       pointer-events: none;
-      transition: border-color 120ms ease, opacity 120ms ease;
+      transition: border-color 120ms ease, background-color 120ms ease, opacity 120ms ease;
     }
 
     .mode-card:hover span::before {
       opacity: 1;
       border-color: var(--mode-border);
+      background: rgba(255, 255, 255, 0.04);
     }
 
     .mode-card input:checked + span::before {
       opacity: 1;
       border-color: var(--mode-accent);
+      background: rgba(12, 140, 233, 0.14);
     }
 
     .mode-card input:focus-visible + span::before {
@@ -150,18 +158,11 @@
       stroke: var(--mode-accent);
     }
 
-    label {
-      font-size: 12px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
     .field-row {
       display: grid;
       gap: 6px;
       font-size: 12px;
-      color: #444;
+      color: var(--text-secondary);
     }
 
     .input-section {
@@ -180,8 +181,20 @@
       border: 1px solid var(--mode-border);
       border-radius: 4px;
       font-size: 12px;
+      font-variant-numeric: tabular-nums;
       padding: 6px 8px;
       box-sizing: border-box;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      transition: border-color 120ms ease;
+    }
+
+    .field-row input::placeholder {
+      color: var(--text-tertiary);
+    }
+
+    .field-row input:hover {
+      border-color: #555555;
     }
 
     .field-row input:focus,
@@ -202,14 +215,51 @@
     }
 
     .check-row label {
-      color: #444;
+      font-size: 12px;
+      color: var(--text-secondary);
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 6px;
+      cursor: pointer;
     }
 
     .check-row input[type="checkbox"] {
+      appearance: none;
+      -webkit-appearance: none;
       margin: 0;
+      width: 14px;
+      height: 14px;
+      flex: 0 0 14px;
+      border: 1px solid #555555;
+      border-radius: 3px;
+      background: var(--bg-secondary);
+      display: grid;
+      place-content: center;
+      cursor: pointer;
+      transition: background-color 120ms ease, border-color 120ms ease;
+    }
+
+    .check-row input[type="checkbox"]:hover {
+      border-color: #6b6b6b;
+    }
+
+    .check-row input[type="checkbox"]:checked {
+      background: var(--mode-accent);
+      border-color: var(--mode-accent);
+    }
+
+    .check-row input[type="checkbox"]:checked::after {
+      content: "";
+      width: 4px;
+      height: 7px;
+      border: solid #ffffff;
+      border-width: 0 1.75px 1.75px 0;
+      transform: translateY(-0.5px) rotate(45deg);
+    }
+
+    .check-row input[type="checkbox"]:focus-visible {
+      outline: 2px solid var(--mode-accent-hover);
+      outline-offset: 1px;
     }
 
     .check-section {
@@ -219,36 +269,46 @@
 
     .selection {
       font-size: 12px;
-      color: #444;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-tertiary);
+      transition: color 120ms ease;
     }
 
-    .actions {
-      display: flex;
-      gap: 8px;
-    }
-
-    button {
-      border: 1px solid var(--mode-border);
-      border-radius: 4px;
-      font-size: 12px;
-      padding: 8px 10px;
-      width: 100%;
-      background: #fff;
-      cursor: pointer;
+    .selection.has-selection {
+      color: var(--text-secondary);
     }
 
     button.primary {
-      border-color: var(--mode-border);
-      background: #1b71ff;
-      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
       font-weight: 600;
+      padding: 9px 10px;
+      width: 100%;
+      background: var(--mode-accent);
+      color: #ffffff;
+      cursor: pointer;
+      transition: background-color 120ms ease;
+    }
+
+    button.primary:hover {
+      background: var(--mode-accent-hover);
+    }
+
+    button.primary:active {
+      background: var(--mode-accent-active);
+    }
+
+    button.primary:focus-visible {
+      outline: 2px solid var(--mode-accent-hover);
+      outline-offset: 1px;
     }
   </style>
 </head>
 <body>
   <div class="mode-section">
     <div id="mode-title" class="mode-title">Mode All Side</div>
-    <div id="mode-grid" class="mode-grid"></div>
+    <div id="mode-grid" class="mode-grid" role="radiogroup" aria-labelledby="mode-title"></div>
   </div>
 
   <div class="input-section">
@@ -256,11 +316,11 @@
     <div class="field-row-pair">
       <div class="field-row">
         <label for="padding">Padding (px)</label>
-        <input id="padding" type="number" min="0" step="1" value="" placeholder="0" />
+        <input id="padding" type="number" inputmode="decimal" min="0" step="1" placeholder="0" />
       </div>
       <div class="field-row">
         <label for="gap">Gap (px)</label>
-        <input id="gap" type="number" min="0" step="1" value="" placeholder="0" />
+        <input id="gap" type="number" inputmode="decimal" min="0" step="1" placeholder="0" />
       </div>
     </div>
   </div>
@@ -275,15 +335,13 @@
     </div>
   </div>
 
-  <div id="selection" class="selection">1 Frame Selected</div>
+  <div id="selection" class="selection" aria-live="polite">0 Frames Selected</div>
 
-  <div class="actions">
-    <button id="apply" class="primary">Resize</button>
-  </div>
+  <button id="apply" type="button" class="primary">Resize</button>
 
   <script>
     const MODE_OPTIONS = [
-      { value: 'all', label: 'All sides' },
+      { value: 'all', label: 'All sides', title: 'All Side' },
       { value: 'vertical', label: 'Top and Bottom' },
       { value: 'horizontal', label: 'Left and Right' },
       { value: 'top', label: 'Top' },
@@ -291,19 +349,10 @@
       { value: 'bottom', label: 'Bottom' },
       { value: 'left', label: 'Left' }
     ];
-    const MODE_VALUES = new Set(MODE_OPTIONS.map((option) => option.value));
-    const MODE_TITLE_LABELS = {
-      all: 'All Side',
-      vertical: 'Top and Bottom',
-      horizontal: 'Left and Right',
-      top: 'Top',
-      right: 'Right',
-      bottom: 'Bottom',
-      left: 'Left'
-    };
+    const MODE_MAP = new Map(MODE_OPTIONS.map((option) => [option.value, option]));
     const MODE_ICON = [
       '<svg class="mode-icon-svg" viewBox="0 0 18 18" aria-hidden="true">',
-      '<rect class="mode-icon-base" x="2.5" y="2.5" width="13" height="13" rx="0"></rect>',
+      '<rect class="mode-icon-base" x="2.5" y="2.5" width="13" height="13"></rect>',
       '<line class="mode-icon-side mode-icon-top" x1="2.5" y1="2.5" x2="15.5" y2="2.5"></line>',
       '<line class="mode-icon-side mode-icon-right" x1="15.5" y1="2.5" x2="15.5" y2="15.5"></line>',
       '<line class="mode-icon-side mode-icon-bottom" x1="2.5" y1="15.5" x2="15.5" y2="15.5"></line>',
@@ -319,19 +368,25 @@
     const removeLastGapInput = document.getElementById('remove-last-gap');
     const applyButton = document.getElementById('apply');
 
+    const modeInputs = new Map();
+    const saveTimers = new Map();
+    const INPUT_SAVE_DEBOUNCE_MS = 150;
+    const BLOCKED_NUMBER_KEYS = new Set(['-', '+', 'e', 'E']);
+
     let uiSizeRaf = 0;
     let currentMode = 'all';
+    let lastPostedHeight = 0;
 
     function postToPlugin(pluginMessage) {
       parent.postMessage({ pluginMessage }, '*');
     }
 
     function postUiSizeNow() {
-      const root = document.documentElement;
       const body = document.body;
-      const width = Math.ceil(Math.max(root.scrollWidth, body.scrollWidth));
-      const height = Math.ceil(Math.max(root.scrollHeight, body.scrollHeight));
-      postToPlugin({ type: 'ui-size', width, height });
+      const height = Math.ceil(Math.max(body.offsetHeight, body.getBoundingClientRect().height));
+      if (height === lastPostedHeight) return;
+      lastPostedHeight = height;
+      postToPlugin({ type: 'ui-size', height });
     }
 
     function requestUiSize() {
@@ -342,58 +397,111 @@
       });
     }
 
-    function sanitizeNonNegativeInput(input) {
-      const raw = Number(input.value);
-      if (!Number.isFinite(raw)) return 0;
-      return Math.max(0, raw);
+    function sanitizeNonNegativeValue(rawValue) {
+      const raw = Number(rawValue);
+      return Number.isFinite(raw) ? Math.max(0, raw) : 0;
     }
 
-    function sanitizeMode(mode) {
-      return MODE_VALUES.has(mode) ? mode : 'all';
+    function formatNumberInputValue(value) {
+      const safeValue = sanitizeNonNegativeValue(value ?? 0);
+      return safeValue === 0 ? '' : String(safeValue);
     }
 
     function setMode(mode) {
-      currentMode = sanitizeMode(mode);
-      const selected = modeGridEl.querySelector(`input[name="mode"][value="${currentMode}"]`);
+      currentMode = MODE_MAP.has(mode) ? mode : 'all';
+      const selected = modeInputs.get(currentMode);
       if (selected) selected.checked = true;
-      updateModeTitle();
-    }
-
-    function getMode() {
-      const selected = document.querySelector('input[name="mode"]:checked');
-      return sanitizeMode(selected ? selected.value : currentMode);
-    }
-
-    function getResizePayload() {
-      return {
-        mode: getMode(),
-        padding: sanitizeNonNegativeInput(paddingInput),
-        gap: sanitizeNonNegativeInput(gapInput),
-        removeLastGap: removeLastGapInput.checked
-      };
-    }
-
-    function updateModeTitle() {
-      const mode = getMode();
-      modeTitleEl.textContent = `Mode ${MODE_TITLE_LABELS[mode] || 'All Side'}`;
+      const option = MODE_MAP.get(currentMode);
+      modeTitleEl.textContent = `Mode ${option.title || option.label}`;
     }
 
     function saveSetting(type, field, value) {
+      const existingTimer = saveTimers.get(type);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        saveTimers.delete(type);
+      }
       postToPlugin({ type, [field]: value });
-      requestUiSize();
     }
 
-    function enableSelectAllOnFocus(input) {
-      const selectAll = () => {
+    function saveSettingDebounced(type, field, getValue) {
+      const existingTimer = saveTimers.get(type);
+      if (existingTimer) clearTimeout(existingTimer);
+      saveTimers.set(
+        type,
+        setTimeout(() => {
+          saveTimers.delete(type);
+          postToPlugin({ type, [field]: getValue() });
+        }, INPUT_SAVE_DEBOUNCE_MS)
+      );
+    }
+
+    function triggerResize() {
+      for (const timer of saveTimers.values()) clearTimeout(timer);
+      saveTimers.clear();
+      postToPlugin({
+        type: 'resize',
+        mode: currentMode,
+        padding: sanitizeNonNegativeValue(paddingInput.value),
+        gap: sanitizeNonNegativeValue(gapInput.value),
+        removeLastGap: removeLastGapInput.checked
+      });
+    }
+
+    function setupNumberInput(input, saveType, field) {
+      let justFocused = false;
+
+      input.addEventListener('focus', () => {
+        justFocused = true;
         try {
           input.select();
         } catch (_error) {
           // Ignore environments where selecting is not supported.
         }
-      };
+      });
 
-      input.addEventListener('focus', selectAll);
-      input.addEventListener('click', selectAll);
+      input.addEventListener('mouseup', (event) => {
+        if (!justFocused) return;
+        justFocused = false;
+        event.preventDefault();
+      });
+
+      input.addEventListener('input', () => {
+        saveSettingDebounced(saveType, field, () => sanitizeNonNegativeValue(input.value));
+      });
+
+      input.addEventListener('blur', () => {
+        justFocused = false;
+        if (input.value.trim() === '') {
+          if (input.validity && !input.validity.valid) input.value = '';
+          saveSetting(saveType, field, 0);
+          return;
+        }
+        const safeValue = sanitizeNonNegativeValue(input.value);
+        input.value = safeValue === 0 ? '' : String(safeValue);
+        saveSetting(saveType, field, safeValue);
+      });
+
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          triggerResize();
+          return;
+        }
+
+        if (BLOCKED_NUMBER_KEYS.has(event.key)) {
+          event.preventDefault();
+          return;
+        }
+
+        if (event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+          event.preventDefault();
+          const delta = event.key === 'ArrowUp' ? 10 : -10;
+          const nextValue = Math.max(0, sanitizeNonNegativeValue(input.value) + delta);
+          input.value = nextValue === 0 ? '' : String(nextValue);
+          saveSetting(saveType, field, nextValue);
+        }
+      });
     }
 
     function renderModeOptions() {
@@ -403,12 +511,17 @@
         `<span>${MODE_ICON}</span>`,
         '</label>'
       ].join('')).join('');
+
+      modeInputs.clear();
+      for (const radio of modeGridEl.querySelectorAll('input[name="mode"]')) {
+        modeInputs.set(radio.value, radio);
+      }
     }
 
     renderModeOptions();
     setMode(currentMode);
-    enableSelectAllOnFocus(paddingInput);
-    enableSelectAllOnFocus(gapInput);
+    setupNumberInput(paddingInput, 'save-padding', 'padding');
+    setupNumberInput(gapInput, 'save-gap', 'gap');
 
     modeGridEl.addEventListener('change', (event) => {
       const target = event.target;
@@ -417,56 +530,46 @@
       saveSetting('save-mode', 'mode', currentMode);
     });
 
-    paddingInput.addEventListener('input', () => {
-      saveSetting('save-padding', 'padding', sanitizeNonNegativeInput(paddingInput));
-    });
-
-    gapInput.addEventListener('input', () => {
-      saveSetting('save-gap', 'gap', sanitizeNonNegativeInput(gapInput));
-    });
-
     removeLastGapInput.addEventListener('change', () => {
       saveSetting('save-remove-last-gap', 'removeLastGap', removeLastGapInput.checked);
     });
 
-    applyButton.addEventListener('click', () => {
-      postToPlugin({ type: 'resize', ...getResizePayload() });
-    });
+    applyButton.addEventListener('click', triggerResize);
 
     const messageHandlers = {
       'selection-info': (msg) => {
-        selectionEl.textContent = `${msg.frameCount} Frame${msg.frameCount === 1 ? '' : 's'} Selected`;
+        const count = typeof msg.frameCount === 'number' ? msg.frameCount : 0;
+        selectionEl.textContent = `${count} Frame${count === 1 ? '' : 's'} Selected`;
+        selectionEl.classList.toggle('has-selection', count > 0);
       },
       'set-mode': (msg) => {
         setMode(msg.mode);
       },
       'set-padding': (msg) => {
-        const value = Number(msg.padding ?? 0);
-        const safeValue = Number.isFinite(value) ? Math.max(0, value) : 0;
-        paddingInput.value = safeValue === 0 ? '' : String(safeValue);
+        paddingInput.value = formatNumberInputValue(msg.padding);
       },
       'set-gap': (msg) => {
-        const value = Number(msg.gap ?? 0);
-        const safeValue = Number.isFinite(value) ? Math.max(0, value) : 0;
-        gapInput.value = safeValue === 0 ? '' : String(safeValue);
+        gapInput.value = formatNumberInputValue(msg.gap);
       },
       'set-remove-last-gap': (msg) => {
         removeLastGapInput.checked = msg.removeLastGap === true;
       }
     };
 
-    onmessage = (event) => {
+    window.addEventListener('message', (event) => {
       const msg = event.data && event.data.pluginMessage;
       if (!msg || typeof msg !== 'object') return;
 
       const handler = messageHandlers[msg.type];
       if (!handler) return;
       handler(msg);
-      requestUiSize();
-    };
+    });
 
     postToPlugin({ type: 'ui-ready' });
     requestUiSize();
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(requestUiSize);
+    }
     window.addEventListener('resize', requestUiSize);
   </script>
 </body>
